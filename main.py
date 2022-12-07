@@ -18,17 +18,17 @@ def main():
         args = load_config(args, args.config_path)
     seed_everything(args.seed) 
     """set up sampler to datapreprocess""" #设置数据处理的采样过程
-    train_sampler_class = import_class(f"neuralkg.data.{args.train_sampler_class}")
+    train_sampler_class = import_class(f"neuralkg.data.Sampler.{args.train_sampler_class}")
     train_sampler = train_sampler_class(args)  # 这个sampler是可选择的
     #print(train_sampler)
-    test_sampler_class = import_class(f"neuralkg.data.{args.test_sampler_class}")
+    test_sampler_class = import_class(f"neuralkg.data.Sampler.{args.test_sampler_class}")
     test_sampler = test_sampler_class(train_sampler)  # test_sampler是一定要的
     """set up datamodule""" #设置数据模块
     data_class = import_class(f"neuralkg.data.{args.data_class}") #定义数据类 DataClass
     kgdata = data_class(args, train_sampler, test_sampler)
     """set up model"""
     model_class = import_class(f"neuralkg.model.{args.model_name}")
-    
+    #model_class = import_class(f"src.neuralkg.model.KGEModel.TransE.{args.model_name}")
     if args.model_name == "RugE":
         ground = GroundAllRules(args)
         ground.PropositionalizeRule()
@@ -40,9 +40,21 @@ def main():
         model = model_class(args, train_sampler, test_sampler)
     else:
         model = model_class(args)
+    
+    if args.model_name == 'SEGNN':
+        src_list = train_sampler.src_list
+        dst_list = train_sampler.dst_list
+        rel_list = train_sampler.rel_list
+        print("This is worked1")
+        #print(kg.is_cuda)
     """set up lit_model"""
     litmodel_class = import_class(f"neuralkg.lit_model.{args.litmodel_name}")
-    lit_model = litmodel_class(model, args)
+    #litmodel_class = import_class(f"src.neuralkg.lit_model.KGELitModel.{args.litmodel_name}")
+    print("This is worked 2")
+    if args.model_name =='SEGNN':
+        lit_model = litmodel_class(model, args, src_list, dst_list, rel_list)
+    else:
+        lit_model = litmodel_class(model, args)
     """set up logger"""
     logger = pl.loggers.TensorBoardLogger("training/logs")
     if args.use_wandb:
@@ -50,6 +62,7 @@ def main():
         logger = pl.loggers.WandbLogger(name=log_name, project="NeuralKG")
         logger.log_hyperparams(vars(args))
     """early stopping"""
+    print("This is worked 3")
     early_callback = pl.callbacks.EarlyStopping(
         monitor="Eval|mrr",
         mode="max",
@@ -61,6 +74,7 @@ def main():
     # 目前是保存在验证集上mrr结果最好的模型
     # 模型保存的路径
     dirpath = "/".join(["output", args.eval_task, args.dataset_name, args.model_name])
+    print("This is worked 4")
     model_checkpoint = pl.callbacks.ModelCheckpoint(
         monitor="Eval|mrr",
         mode="max",
@@ -71,6 +85,7 @@ def main():
     )
     callbacks = [early_callback, model_checkpoint]
     # initialize trainer
+    print("This is worked 5")
     if args.model_name == "IterE":
 
         trainer = pl.Trainer.from_argparse_args(
@@ -96,6 +111,7 @@ def main():
         save_config(args)
     if args.use_wandb:
         logger.watch(lit_model)
+    print("This is worked 6")
     if not args.test_only:
         # train&valid
         trainer.fit(lit_model, datamodule=kgdata)

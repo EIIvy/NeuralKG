@@ -21,7 +21,7 @@ class BaseLitModel(pl.LightningModule):
     Generic PyTorch-Lightning class that must be initialized with a PyTorch module.
     """
 
-    def __init__(self, model, args: argparse.Namespace = None):
+    def __init__(self, model, args: argparse.Namespace = None, src_list = None, dst_list=None, rel_list=None):
         super().__init__()
         self.model = model
         self.args = args
@@ -30,6 +30,7 @@ class BaseLitModel(pl.LightningModule):
         loss_name = args.loss_name
         self.loss_class = getattr(loss, loss_name)
         self.loss = self.loss_class(args, model)
+        self.automatic_optimization = False
 
 
     @staticmethod
