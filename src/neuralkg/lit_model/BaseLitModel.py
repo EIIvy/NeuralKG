@@ -30,7 +30,8 @@ class BaseLitModel(pl.LightningModule):
         loss_name = args.loss_name
         self.loss_class = getattr(loss, loss_name)
         self.loss = self.loss_class(args, model)
-        self.automatic_optimization = False
+        if self.args.model_name == 'SEGNN':
+            self.automatic_optimization = False
 
 
     @staticmethod

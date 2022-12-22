@@ -38,9 +38,6 @@ class SEGNN(nn.Module):
             self.pred_rel_emb = get_param(self.n_rel * 2, self.emb_dim)
 
         self.predictor = ConvE(self.args) #(200, 250, 7)
-        # loss
-        #self.bce = nn.BCELoss()
-
         self.ent_drop = nn.Dropout(self.args.ent_drop)  #0.2
         self.rel_drop = nn.Dropout(self.args.rel_drop)  #0
         self.act = nn.Tanh()

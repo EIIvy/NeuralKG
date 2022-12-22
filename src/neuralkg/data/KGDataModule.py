@@ -25,6 +25,7 @@ class KGDataModule(BaseDataModule):
         
         #for SEGNN
         if self.args.model_name == 'SEGNN':
+            self.data_train = self.train_sampler.get_train()
             single_epoch_step = len(self.train_dataloader()) + 1
             self.args.maxsteps = self.args.max_epochs * single_epoch_step
             self.args.warm_up_steps = int(single_epoch_step * self.args.warmup_epoch)
@@ -69,26 +70,15 @@ class KGDataModule(BaseDataModule):
 
     def train_dataloader(self):
         self.train_bs = self.get_train_bs()
-        if self.args.model_name == 'SEGNN':
-            return DataLoader(
-            self.train_sampler,
+        return DataLoader(
+            self.data_train,
             shuffle=True,
             batch_size=self.train_bs,
             num_workers=self.num_workers,
             pin_memory=True,
             drop_last=True,
-            collate_fn=self.train_sampler.collate_fn,
-            )
-        else:
-            return DataLoader(
-                self.data_train,
-                shuffle=True,
-                batch_size=self.train_bs,
-                num_workers=self.num_workers,
-                pin_memory=True,
-                drop_last=True,
-                collate_fn=self.train_sampler.sampling,
-            )
+            collate_fn=self.train_sampler.sampling,
+        )
             
     def val_dataloader(self):
         return DataLoader(

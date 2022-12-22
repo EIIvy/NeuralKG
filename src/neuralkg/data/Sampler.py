@@ -10,6 +10,7 @@ import dgl
 import torch.nn.functional as F
 import time
 import queue
+from os.path import join
 import math
 
 class UniSampler(BaseSampler):
@@ -319,19 +320,24 @@ class ConvSampler(RevSampler):
             batch_data: The training data.
         """
         batch_data = {}
-
+        t_triples = []
         self.label = torch.zeros(self.args.train_bs, self.args.num_ent)
         self.triples  = torch.LongTensor([hr for hr , _ in pos_hr_t])
+        for hr, t in pos_hr_t:
+            t_triples.append(t)
+        
         for id, hr_sample in enumerate([t for _ ,t in pos_hr_t]):
             self.label[id][hr_sample] = 1
     
         batch_data["sample"] = self.triples
         batch_data["label"] = self.label
+        batch_data["t_triples"] = t_triples
         
         return batch_data
 
     def sampling_keys(self):
-        return ["sample", "label"]
+        return ["sample", "label", "t_triples"]
+
 
 class XTransESampler(RevSampler):
     """Random negative sampling and recording neighbor entities.
@@ -903,7 +909,6 @@ class TestSampler(object):
 
     def get_hr2t_rt2h_from_all(self):
         """Get the set of hr2t and rt2h from all datasets(train, valid, and test), the data type is tensor.
-
         Update:
             self.hr2t_all: The set of hr2t.
             self.rt2h_all: The set of rt2h.
@@ -1080,24 +1085,12 @@ class CompGCNTestSampler(object):
         return ["positive_sample", "head_label", "tail_label",\
              "graph", "rela", "norm", "entity"]
 
-class SEGNNTrainSampler(Dataset):
+
+class SEGNNTrainProcess(RevSampler):
     def __init__(self, args):
-        super().__init__()
+        super().__init__(args)
         self.args = args
-        self.data_path = self.args.data_path
         self.use_weight = self.args.use_weight
-
-        self.ent2id = {}
-        self.rel2id = {}
-        
-        self.id2ent = {}
-        self.id2rel = {}
-
-        self.train_triples = []
-        self.valid_triples = []
-        self.test_triples = []
-        self.train_triples1 = []
-        self.all_true_triples = None
         #Parameters when constructing graph
         self.src_list = []
         self.dst_list = []
@@ -1114,93 +1107,29 @@ class SEGNNTrainSampler(Dataset):
         self.rm_edges = []
         self.set_scaling_weight = []
 
-        self.hr2t_train = ddict(set)
-        self.ht2r_train = ddict(set)
-        self.rt2h_train = ddict(set)
-        self.get_id()
+        self.hr2t_train_1 = ddict(set)
+        self.ht2r_train_1 = ddict(set)
+        self.rt2h_train_1 = ddict(set)
         self.get_h2rt_t2hr_from_train()
         self.construct_kg()
-        self.sampling()
-        #self.construct_kg()
-    def get_id(self):
-        """Get entity/relation id, and entity/relation number.
-
-        Update:
-            self.ent2id: Entity to id.
-            self.rel2id: Relation to id.
-            self.id2ent: id to Entity.
-            self.id2rel: id to Relation.
-            self.args.num_ent: Entity number.
-            self.args.num_rel: Relation number.
-        """
-        with open(os.path.join(self.args.data_path, "entities.dict")) as fin:
-            for line in fin:
-                eid, entity = line.strip().split("\t")
-                self.ent2id[entity] = int(eid)
-                self.id2ent[int(eid)] = entity
-
-        with open(os.path.join(self.args.data_path, "relations.dict")) as fin:
-            for line in fin:
-                rid, relation = line.strip().split("\t")
-                self.rel2id[relation] = int(rid)
-                self.id2rel[int(rid)] = relation
-
-       
-        self.args.num_ent = len(self.ent2id)
-        self.args.num_rel = len(self.rel2id)
-
-        with open(os.path.join(self.args.data_path, "train.txt")) as f:
-            for line in f.readlines():
-                h, r, t = line.strip().split()
-                self.train_triples.append(
-                    (self.ent2id[h], self.rel2id[r], self.ent2id[t])
-                )
-                self.train_triples1.append(
-                    (self.ent2id[t], self.rel2id[r]+self.args.num_rel, self.ent2id[h])
-                )
-        
-        with open(os.path.join(self.args.data_path, "valid.txt")) as f:
-            for line in f.readlines():
-                h, r, t = line.strip().split()
-                self.valid_triples.append(
-                    (self.ent2id[h], self.rel2id[r], self.ent2id[t])
-                )
-                self.valid_triples.append(
-                    (self.ent2id[t], self.rel2id[r]+self.args.num_rel, self.ent2id[h])
-                )
-
-        with open(os.path.join(self.args.data_path, "test.txt")) as f:
-            for line in f.readlines():
-                h, r, t = line.strip().split()
-                self.test_triples.append(
-                    (self.ent2id[h], self.rel2id[r], self.ent2id[t])
-                )
-                self.test_triples.append(
-                    (self.ent2id[t], self.rel2id[r]+self.args.num_rel, self.ent2id[h])
-                )
-
-        self.all_true_triples = self.train_triples + self.valid_triples + self.test_triples + self.train_triples1
-        
+        self.get_sampling()
     
     def get_h2rt_t2hr_from_train(self):
         for h, r, t in self.train_triples:
-            self.ent_head.append(h)
-            self.rel.append(r)
-            self.ent_tail.append(t)
-            self.ht2r_train[(h, t)].add(r)
-            self.ht2r_train[(t, h)].add(r + self.args.num_rel)
-            self.hr2t_train[(h, r)].add(t)
-            self.rt2h_train[(r, t)].add(h)
-        for ht, th in self.ht2r_train:
-            self.ht2r_train[(ht, th)] = np.array(list(self.ht2r_train[(ht, th)]))
+            if r <= self.args.num_rel:
+                self.ent_head.append(h)
+                self.rel.append(r)
+                self.ent_tail.append(t)
+                self.hr2t_train_1[(h, r)].add(t)
+                self.rt2h_train_1[(r, t)].add(h)
+        
         for h, r in self.hr2t_train:
-            self.hr2t_train[(h, r)] = np.array(list(self.hr2t_train[(h, r)]))
+            self.hr2t_train_1[(h, r)] = np.array(list(self.hr2t_train[(h, r)]))
         for r, t in self.rt2h_train:
-            self.rt2h_train[(r, t)] = np.array(list(self.rt2h_train[(r, t)]))
-    
+            self.rt2h_train_1[(r, t)] = np.array(list(self.rt2h_train[(r, t)]))
     def __len__(self):
         return len(self.label)
-
+    
     def __getitem__(self, item):
         h, r, t = self.query[item]
         label = self.get_onehot_label(self.label[item])
@@ -1208,7 +1137,6 @@ class SEGNNTrainSampler(Dataset):
         rm_edges = torch.tensor(self.rm_edges[item], dtype=torch.int64)
         rm_num = math.ceil(rm_edges.shape[0] * self.args.rm_rate)
         rm_inds = torch.randperm(rm_edges.shape[0])[:rm_num]
-        #rm_inds = torch.arange(rm_edges.shape[0])[:rm_num]
         rm_edges = rm_edges[rm_inds]
 
         return (h, r, t), label, rm_edges
@@ -1220,38 +1148,15 @@ class SEGNNTrainSampler(Dataset):
             onehot_label = (1.0 - self.args.label_smooth) * onehot_label + (1.0 / self.args.num_ent)
 
         return onehot_label
-    def get_train(self):
-        return self.train_triples
+    
 
-    def get_valid(self):
-        return self.valid_triples
-
-    def get_test(self):
-        return self.test_triples
-
-    @staticmethod
-    def collate_fn(data):
-        src = [d[0][0] for d in data]
-        rel = [d[0][1] for d in data]
-        dst = [d[0][2] for d in data]
-        label = [d[1] for d in data]  # list of list
-        rm_edges = [d[2] for d in data]
-
-        src = torch.tensor(src, dtype=torch.int64)
-        rel = torch.tensor(rel, dtype=torch.int64)
-        dst = torch.tensor(dst, dtype=torch.int64)  # (bs, )
-        label = torch.stack(label, dim=0)  # (bs, n_ent)
-        rm_edges = torch.cat(rm_edges, dim=0)  # (n_rm_edges, )
-
-        return (src, rel, dst), label, rm_edges
-
-    def sampling(self):
-        for k, v in self.hr2t_train.items():
+    def get_sampling(self):
+        for k, v in self.hr2t_train_1.items():
             self.query.append((k[0], k[1], -1))
             self.label.append(list(v))
             self.rm_edges.append(self.hr2eid[k])
         
-        for k, v in self.rt2h_train.items():
+        for k, v in self.rt2h_train_1.items():
             self.query.append((k[1], k[0] + self.args.num_rel, -1))
             self.label.append(list(v))
             self.rm_edges.append(self.rt2eid[k])
@@ -1286,6 +1191,36 @@ class SEGNNTrainSampler(Dataset):
 
         self.src_list, self.dst_list,self.rel_list = torch.tensor(self.src_list), torch.tensor(self.dst_list), torch.tensor(self.rel_list)
 
+class SEGNNTrainSampler(object):
+    def __init__(self, args):
+        self.args = args
+        self.get_train_1 = SEGNNTrainProcess(args)
+        self.get_valid_1 = SEGNNTrainProcess(args).get_valid()
+        self.get_test_1 = SEGNNTrainProcess(args).get_test()
+    
+    def get_train(self):
+        return self.get_train_1
+    def get_valid(self):
+        return self.get_valid_1
+    def get_test(self):
+        return self.get_test_1
+    
+    def sampling(self, data):
+        src = [d[0][0] for d in data]
+        rel = [d[0][1] for d in data]
+        dst = [d[0][2] for d in data]
+        label = [d[1] for d in data]  # list of list
+        rm_edges = [d[2] for d in data]
+
+        src = torch.tensor(src, dtype=torch.int64)
+        rel = torch.tensor(rel, dtype=torch.int64)
+        dst = torch.tensor(dst, dtype=torch.int64)  
+        label = torch.stack(label, dim=0)  
+        rm_edges = torch.cat(rm_edges, dim=0)  
+
+        return (src, rel, dst), label, rm_edges
+
+
 
 class SEGNNTestSampler(Dataset):
     def __init__(self, sampler):
@@ -1303,11 +1238,14 @@ class SEGNNTestSampler(Dataset):
             self.hr2t_all: The set of hr2t.
             self.rt2h_all: The set of rt2h.
         """
-        for h, r, t in self.sampler.all_true_triples:
+        for h, r, t in self.sampler.get_train_1.all_true_triples:
             self.hr2t_all[(h, r)].add(t)
-
+            # self.rt2h_all[(r, t)].add(h)
         for h, r in self.hr2t_all:
             self.hr2t_all[(h, r)] = torch.tensor(list(self.hr2t_all[(h, r)]))
+        # for r, t in self.rt2h_all:
+        #     self.rt2h_all[(r, t)] = torch.tensor(list(self.rt2h_all[(r, t)]))
+
     def sampling(self, data):
         """Sampling triples and recording positive triples for testing.
 
@@ -1326,9 +1264,12 @@ class SEGNNTestSampler(Dataset):
             head, rel, tail = triple
             filter_tail[idx][self.hr2t_all[(head, rel)]] = -float('inf')
             filter_tail[idx][tail] = 0
+            
             tail_label[idx][self.hr2t_all[(head, rel)]] = 1.0
         batch_data["positive_sample"] = torch.tensor(data)
+       
         batch_data["filter_tail"] = filter_tail
+       
         batch_data["tail_label"] = tail_label
         return batch_data
 

@@ -29,10 +29,10 @@ KER_SZ=8
 OUT_CHANNEL=200
 CHECK_PER_EPOCH=1
 NUM_WORKERS=10
-GPU=2
+GPU=4
 
 
-CUDA_VISIBLE_DEVICES=$GPU python -u main1.py \
+CUDA_VISIBLE_DEVICES=$GPU python -u main.py \
     --model_name $MODEL_NAME \
     --dataset_name $DATASET_NAME \
     --data_path $DATA_PATH \

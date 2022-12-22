@@ -11,13 +11,13 @@ import json
 import dgl 
 from collections import defaultdict as ddict
 from IPython import embed
-from .BaseLitModel1 import BaseLitModel1
+from .BaseLitModel1 import BaseLitModel
 from neuralkg.eval_task import *
 from IPython import embed
 
 from functools import partial
 
-class SEGNNLitModel(BaseLitModel1):
+class SEGNNLitModel(BaseLitModel):
     def __init__(self, model, args, src_list, dst_list, rel_list):
         super().__init__(model, args)
         self.src_list = src_list
@@ -64,9 +64,7 @@ class SEGNNLitModel(BaseLitModel1):
         outputs = self.get_results(results, "Eval")
         # self.log("Eval|mrr", outputs["Eval|mrr"], on_epoch=True)
         self.log_dict(outputs, prog_bar=True, on_epoch=True)
-        # msg = ddict(float)
-        # msg['Loss'] = np.mean(np.array(torch.tensor(self.loss_list, device='cpu')))
-        # msg['lr'] = self.optimizers().param_groups[0]['lr']
+        
 
 
 
